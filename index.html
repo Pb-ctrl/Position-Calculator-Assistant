@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 仓位计算助手 (离线版)</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f3f4f6;
+            --card: #ffffff;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+            --red: #ef4444;
+            --green: #10b981;
+            --yellow: #f59e0b;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        @media (min-width: 768px) {
+            .container {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .card {
+            background-color: var(--card);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.25rem;
+            color: var(--primary);
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        button {
+            width: 100%;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 1.1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #1d4ed8;
+        }
+
+        /* 结果展示区样式 */
+        .result-header {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+        }
+
+        .result-table th, .result-table td {
+            padding: 10px;
+            border: 1px solid var(--border);
+            text-align: left;
+        }
+
+        .result-table th {
+            background-color: #f9fafb;
+            color: var(--text-muted);
+            font-weight: 500;
+            width: 40%;
+        }
+
+        .result-table tr.highlight {
+            background-color: #eff6ff;
+            font-weight: bold;
+        }
+
+        .risks {
+            background-color: #fef2f2;
+            border-left: 4px solid var(--red);
+            padding: 15px;
+            border-radius: 0 6px 6px 0;
+            font-size: 0.9rem;
+        }
+
+        .risks.pass {
+            background-color: #f0fdf4;
+            border-left-color: var(--green);
+        }
+
+        .risks.warn {
+            background-color: #fffbeb;
+            border-left-color: var(--yellow);
+        }
+
+        .risk-item {
+            margin-bottom: 5px;
+        }
+        .risk-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .text-green { color: var(--green); }
+        .text-red { color: var(--red); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>📝 交易参数输入</h2>
+        
+        <div class="two-col">
+            <div class="form-group">
+                <label>交易所</label>
+                <select id="exchange">
+                    <option value="Binance">Binance (币安)</option>
+                    <option value="OKX">OKX (欧易)</option>
+                    <option value="Bitget">Bitget</option>
+                    <option value="Bybit">Bybit</option>
+                    <option value="Hyperliquid">Hyperliquid</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>标的/币种</label>
+                <input type="text" id="coin" placeholder="例如: BTC" value="BTC">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>账户总额 (USDT)</label>
+            <input type="number" id="balance" placeholder="例如: 10000" step="any">
+        </div>
+
+        <div class="two-col">
+            <div class="form-group">
+                <label>开仓价格</label>
+                <input type="number" id="entry" placeholder="例如: 68000" step="any">
+            </div>
+            <div class="form-group">
+                <label>杠杆倍数 (1=现货)</label>
+                <input type="number" id="leverage" value="1" min="1" step="any">
+            </div>
+        </div>
+
+        <div class="two-col">
+            <div class="form-group">
+                <label>止损价格</label>
+                <input type="number" id="sl" placeholder="必须填" step="any">
+            </div>
+            <div class="form-group">
+                <label>止盈价格</label>
+                <input type="number" id="tp" placeholder="必须填" step="any">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>止损后亏本金的百分比 (%)</label>
+            <input type="number" id="risk" value="1" step="0.1">
+        </div>
+
+        <button onclick="calculate()">🚀 一键计算仓位</button>
+    </div>
+
+    <div class="card">
+        <h2>📊 仓位计算结果</h2>
+        
+        <div id="welcome-msg" style="color: var(--text-muted); text-align: center; padding: 40px 0;">
+            填写左侧参数并点击计算，结果将显示在这里。
+        </div>
+
+        <div id="result-content" class="hidden">
+            <div id="result-header" class="result-header">
+                方向：<span id="out-direction"></span> | 标的：<span id="out-coin"></span><br>
+                <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">
+                    交易所：<span id="out-exchange"></span>（<span id="out-type"></span> Taker 费率 <span id="out-fee-rate"></span>%）
+                </span>
+            </div>
+
+            <table class="result-table">
+                <tbody>
+                    <tr><th>账户总额</th><td id="out-balance"></td></tr>
+                    <tr><th>止损后亏本金的</th><td id="out-risk-amount"></td></tr>
+                    <tr><th>开仓价格</th><td id="out-entry"></td></tr>
+                    <tr><th>止损价格</th><td id="out-sl"></td></tr>
+                    <tr><th>止盈价格</th><td id="out-tp"></td></tr>
+                    <tr><th>止损距离</th><td id="out-sl-dist"></td></tr>
+                    <tr><th>手续费（双边）</th><td id="out-fee-cost"></td></tr>
+                    <tr><th>实际止损成本</th><td id="out-actual-sl"></td></tr>
+                    <tr><th>杠杆倍数</th><td id="out-leverage"></td></tr>
+                    <tr class="highlight"><th>名义仓位 (开多大的单)</th><td id="out-nominal"></td></tr>
+                    <tr class="highlight"><th>保证金 (占用多少钱)</th><td id="out-margin"></td></tr>
+                    <tr class="highlight"><th>可买入数量</th><td id="out-qty"></td></tr>
+                    <tr><th>预期盈利</th><td id="out-profit"></td></tr>
+                    <tr class="highlight"><th>盈亏比</th><td id="out-rr"></td></tr>
+                    <tr><th>保证金占比</th><td id="out-margin-ratio"></td></tr>
+                </tbody>
+            </table>
+
+            <div id="risk-box" class="risks">
+                <strong style="display:block;margin-bottom:8px;">⚠️ 风险检查：</strong>
+                <div id="risk-list"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 费率表
+    const feeRates = {
+        'Binance': { spot: 0.00100, futures: 0.00050 },
+        'OKX': { spot: 0.00100, futures: 0.00050 },
+        'Bitget': { spot: 0.00100, futures: 0.00060 },
+        'Bybit': { spot: 0.00100, futures: 0.00055 },
+        'Hyperliquid': { spot: 0.00070, futures: 0.00045 }
+    };
+
+    function formatNum(num, decimals = 2) {
+        return Number(num).toFixed(decimals);
+    }
+
+    function calculate() {
+        // 获取输入值
+        const exchange = document.getElementById('exchange').value;
+        const coin = document.getElementById('coin').value.toUpperCase() || '未知标的';
+        const balance = parseFloat(document.getElementById('balance').value);
+        const entry = parseFloat(document.getElementById('entry').value);
+        const sl = parseFloat(document.getElementById('sl').value);
+        const tp = parseFloat(document.getElementById('tp').value);
+        const leverage = parseFloat(document.getElementById('leverage').value) || 1;
+        const riskPct = parseFloat(document.getElementById('risk').value) || 1;
+
+        // 基础验证
+        if (!balance || !entry || !sl || !tp) {
+            alert('请填写完整的账户总额、开仓、止损、止盈价格！');
+            return;
+        }
+
+        // 第1步：判断方向
+        let direction = '';
+        let dirIcon = '';
+        let dirColor = '';
+        
+        if (sl < entry) {
+            direction = '做多';
+            dirIcon = '▲';
+            dirColor = 'text-green';
+        } else if (sl > entry) {
+            direction = '做空';
+            dirIcon = '▼';
+            dirColor = 'text-red';
+        } else {
+            alert('止损价格不能等于开仓价格！');
+            return;
+        }
+
+        // 第2步：计算止损距离
+        let slDist = direction === '做多' ? (entry - sl) / entry : (sl - entry) / entry;
+
+        // 第3步：算这笔交易最多亏多少钱
+        let maxLoss = balance * (riskPct / 100);
+
+        // 第4步：手续费修正
+        let isFutures = leverage > 1;
+        let tradeType = isFutures ? '合约' : '现货';
+        let singleFee = isFutures ? feeRates[exchange].futures : feeRates[exchange].spot;
+        let feeCost = singleFee * 2; // 双边
+        let actualSlCost = slDist + feeCost;
+
+        // 第5步：算名义仓位
+        let nominalPos = maxLoss / actualSlCost;
+
+        // 第6步：算保证金
+        let margin = nominalPos / leverage;
+
+        // 第7步：算可买入数量
+        let qty = nominalPos / entry;
+        let qtyDecimals = coin.includes('BTC') ? 4 : (coin.includes('ETH') ? 3 : 2);
+
+        // 第8步：算止盈距离
+        let tpDist = direction === '做多' ? (tp - entry) / entry : (entry - tp) / entry;
+
+        // 第9步：算预期盈利
+        let expProfit = (nominalPos * tpDist) - (nominalPos * feeCost);
+
+        // 第10步：算盈亏比
+        let rr = expProfit / maxLoss;
+        
+        // 保证金占比
+        let marginRatio = (margin / balance) * 100;
+
+        // 风险检查
+        let risks = [];
+        let riskLevel = 'pass'; // pass, warn, fail
+
+        if (margin > balance) {
+            risks.push('❌ 保证金超出账户余额，无法开仓。请减小仓位或降低杠杆。');
+            riskLevel = 'fail';
+        }
+        if (margin > balance * 0.3) {
+            risks.push('⚠️ 保证金占比超30%，仓位偏重，注意集中度风险。');
+            if (riskLevel === 'pass') riskLevel = 'warn';
+        }
+        if (rr < 1) {
+            risks.push('⚠️ 盈亏比不足1:1，收益不覆盖风险，建议调整止盈止损位。');
+            if (riskLevel === 'pass') riskLevel = 'warn';
+        }
+        if (slDist < feeCost) {
+            risks.push('❌ 止损距离小于手续费成本，不管涨跌都亏，请扩大止损。');
+            riskLevel = 'fail';
+        }
+        if (leverage > 20) {
+            risks.push('⚠️ 高杠杆交易，极端行情下可能被强平，确认你能承受。');
+            if (riskLevel === 'pass') riskLevel = 'warn';
+        }
+        if ((direction === '做多' && tp < entry) || (direction === '做空' && tp > entry)) {
+            risks.push('❌ 止盈方向错误，请检查止盈价格。');
+            riskLevel = 'fail';
+        }
+
+        if (risks.length === 0) {
+            risks.push('✅ 所有风险检查通过');
+        }
+
+        // 渲染结果
+        document.getElementById('welcome-msg').classList.add('hidden');
+        document.getElementById('result-content').classList.remove('hidden');
+
+        document.getElementById('out-direction').className = dirColor;
+        document.getElementById('out-direction').innerText = `${direction} ${dirIcon}`;
+        document.getElementById('out-coin').innerText = coin;
+        document.getElementById('out-exchange').innerText = exchange;
+        document.getElementById('out-type').innerText = tradeType;
+        document.getElementById('out-fee-rate').innerText = formatNum(singleFee * 100, 3);
+
+        document.getElementById('out-balance').innerText = `${formatNum(balance)} USDT`;
+        document.getElementById('out-risk-amount').innerText = `${formatNum(riskPct, 2)}% （最多亏 ${formatNum(maxLoss)} USDT）`;
+        document.getElementById('out-entry').innerText = formatNum(entry);
+        document.getElementById('out-sl').innerText = formatNum(sl);
+        document.getElementById('out-tp').innerText = formatNum(tp);
+        
+        document.getElementById('out-sl-dist').innerText = `${formatNum(slDist * 100, 4)}%`;
+        document.getElementById('out-fee-cost').innerText = `${formatNum(feeCost * 100, 4)}%`;
+        document.getElementById('out-actual-sl').innerText = `${formatNum(actualSlCost * 100, 4)}%`;
+        
+        document.getElementById('out-leverage').innerText = `${leverage}x`;
+        document.getElementById('out-nominal').innerText = `${formatNum(nominalPos)} USDT`;
+        document.getElementById('out-margin').innerText = `${formatNum(margin)} USDT`;
+        document.getElementById('out-qty').innerText = `${formatNum(qty, qtyDecimals)} ${coin}`;
+        
+        document.getElementById('out-profit').innerText = `${formatNum(expProfit)} USDT`;
+        document.getElementById('out-rr').innerText = `${formatNum(rr, 1)} : 1`;
+        document.getElementById('out-margin-ratio').innerText = `${formatNum(marginRatio, 2)}%`;
+
+        // 渲染风险提示
+        let riskBox = document.getElementById('risk-box');
+        riskBox.className = 'risks ' + riskLevel;
+        document.getElementById('risk-list').innerHTML = risks.map(r => `<div class="risk-item">${r}</div>`).join('');
+    }
+</script>
+
+</body>
+</html>
