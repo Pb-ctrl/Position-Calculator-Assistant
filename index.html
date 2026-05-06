@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 仓位计算助手 (离线版)</title>
+    <title>AI 仓位计算助手 (离线高级版)</title>
     <style>
         :root {
             --primary: #2563eb;
@@ -130,7 +130,7 @@
             background-color: #f9fafb;
             color: var(--text-muted);
             font-weight: 500;
-            width: 40%;
+            width: 42%;
         }
 
         .result-table tr.highlight {
@@ -186,7 +186,6 @@
                     <option value="OKX">OKX (欧易)</option>
                     <option value="Bitget">Bitget</option>
                     <option value="Bybit">Bybit</option>
-                    <option value="Hyperliquid">Hyperliquid</option>
                 </select>
             </div>
             <div class="form-group">
@@ -221,10 +220,20 @@
                 <input type="number" id="tp" placeholder="必须填" step="any">
             </div>
         </div>
-
-        <div class="form-group">
-            <label>止损后亏本金的百分比 (%)</label>
-            <input type="number" id="risk" value="1" step="0.1">
+        
+        <!-- ⬇️ 新增：选择挂单还是吃单 -->
+        <div class="two-col">
+            <div class="form-group">
+                <label>开仓方式</label>
+                <select id="orderType">
+                    <option value="taker">市价单 (Taker 吃单)</option>
+                    <option value="maker">限价单 (Maker 挂单)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>单笔亏损占比 (%)</label>
+                <input type="number" id="risk" value="1" step="0.1" title="止损后最多亏本金的百分比">
+            </div>
         </div>
 
         <button onclick="calculate()">🚀 一键计算仓位</button>
@@ -242,27 +251,27 @@
             <div id="result-header" class="result-header">
                 方向：<span id="out-direction"></span> | 标的：<span id="out-coin"></span><br>
                 <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">
-                    交易所：<span id="out-exchange"></span>（<span id="out-type"></span> Taker 费率 <span id="out-fee-rate"></span>%）
+                    <span id="out-exchange"></span>（<span id="out-type"></span>）| 开仓费率 <span id="out-entry-fee"></span>% / 止损费率 <span id="out-exit-fee"></span>%
                 </span>
             </div>
 
             <table class="result-table">
                 <tbody>
                     <tr><th>账户总额</th><td id="out-balance"></td></tr>
-                    <tr><th>止损后亏本金的</th><td id="out-risk-amount"></td></tr>
+                    <tr><th>止损后允许最大亏损</th><td id="out-risk-amount"></td></tr>
                     <tr><th>开仓价格</th><td id="out-entry"></td></tr>
                     <tr><th>止损价格</th><td id="out-sl"></td></tr>
                     <tr><th>止盈价格</th><td id="out-tp"></td></tr>
-                    <tr><th>止损距离</th><td id="out-sl-dist"></td></tr>
-                    <tr><th>手续费（双边）</th><td id="out-fee-cost"></td></tr>
-                    <tr><th>实际止损成本</th><td id="out-actual-sl"></td></tr>
+                    <tr><th>K线止损距离</th><td id="out-sl-dist"></td></tr>
+                    <tr><th>预估手续费(开仓+平仓)</th><td id="out-fee-cost"></td></tr>
+                    <tr><th>实际止损总成本</th><td id="out-actual-sl"></td></tr>
                     <tr><th>杠杆倍数</th><td id="out-leverage"></td></tr>
                     <tr class="highlight"><th>名义仓位 (开多大的单)</th><td id="out-nominal"></td></tr>
-                    <tr class="highlight"><th>保证金 (占用多少钱)</th><td id="out-margin"></td></tr>
+                    <tr class="highlight"><th>保证金 (实际占用资金)</th><td id="out-margin"></td></tr>
                     <tr class="highlight"><th>可买入数量</th><td id="out-qty"></td></tr>
                     <tr><th>预期盈利</th><td id="out-profit"></td></tr>
                     <tr class="highlight"><th>盈亏比</th><td id="out-rr"></td></tr>
-                    <tr><th>保证金占比</th><td id="out-margin-ratio"></td></tr>
+                    <tr><th>保证金占用占比</th><td id="out-margin-ratio"></td></tr>
                 </tbody>
             </table>
 
@@ -275,13 +284,25 @@
 </div>
 
 <script>
-    // ⬇️ 此处已经按照截图修改了费率（将默认的合约 0.00050 改为了截图显示的 0.00040）
+    // ⬇️ 核心费率表（包含 Taker 吃单 和 Maker 挂单 费率）
     const feeRates = {
-        'Binance': { spot: 0.00100, futures: 0.00040 },
-        'OKX': { spot: 0.00100, futures: 0.00050 },
-        'Bitget': { spot: 0.00100, futures: 0.00060 },
-        'Bybit': { spot: 0.00100, futures: 0.00055 },
-        'Hyperliquid': { spot: 0.00070, futures: 0.00045 }
+        'Binance': { 
+            spot: { taker: 0.00100, maker: 0.00100 },
+            // 完美匹配截图数据：吃单0.04%，挂单0%
+            futures: { taker: 0.00040, maker: 0.00000 } 
+        },
+        'OKX': { 
+            spot: { taker: 0.00100, maker: 0.00080 },
+            futures: { taker: 0.00050, maker: 0.00020 } 
+        },
+        'Bitget': { 
+            spot: { taker: 0.00100, maker: 0.00100 },
+            futures: { taker: 0.00060, maker: 0.00020 } 
+        },
+        'Bybit': { 
+            spot: { taker: 0.00100, maker: 0.00100 },
+            futures: { taker: 0.00055, maker: 0.00020 } 
+        }
     };
 
     function formatNum(num, decimals = 2) {
@@ -298,6 +319,7 @@
         const tp = parseFloat(document.getElementById('tp').value);
         const leverage = parseFloat(document.getElementById('leverage').value) || 1;
         const riskPct = parseFloat(document.getElementById('risk').value) || 1;
+        const orderType = document.getElementById('orderType').value; // 'taker' 或 'maker'
 
         // 基础验证
         if (!balance || !entry || !sl || !tp) {
@@ -323,17 +345,29 @@
             return;
         }
 
-        // 第2步：计算止损距离
+        // 第2步：计算纯K线层面的止损距离
         let slDist = direction === '做多' ? (entry - sl) / entry : (sl - entry) / entry;
 
-        // 第3步：算这笔交易最多亏多少钱
+        // 第3步：最大允许亏损金额
         let maxLoss = balance * (riskPct / 100);
 
-        // 第4步：手续费修正
+        // 第4步：手续费精算 🌟
         let isFutures = leverage > 1;
-        let tradeType = isFutures ? '合约' : '现货';
-        let singleFee = isFutures ? feeRates[exchange].futures : feeRates[exchange].spot;
-        let feeCost = singleFee * 2; // 双边
+        let tradeCategory = isFutures ? 'futures' : 'spot';
+        let tradeTypeStr = isFutures ? '合约' : '现货';
+        
+        // 获取当前交易所对应 Maker 和 Taker 费率
+        let takerRate = feeRates[exchange][tradeCategory].taker;
+        let makerRate = feeRates[exchange][tradeCategory].maker;
+
+        // 开仓费率（取决于用户选择市价还是限价）
+        let entryFeeRate = orderType === 'taker' ? takerRate : makerRate;
+        // 止损费率（止损必定是触发市价单，强制按 Taker 算最安全）
+        let exitFeeRate = takerRate; 
+        
+        let feeCost = entryFeeRate + exitFeeRate; 
+        
+        // 实际的亏损百分比 = K线跌幅 + 两次手续费
         let actualSlCost = slDist + feeCost;
 
         // 第5步：算名义仓位
@@ -349,67 +383,68 @@
         // 第8步：算止盈距离
         let tpDist = direction === '做多' ? (tp - entry) / entry : (entry - tp) / entry;
 
-        // 第9步：算预期盈利
+        // 第9步：算预期盈利 (用开仓手续费+假设平仓也是taker费率扣除)
         let expProfit = (nominalPos * tpDist) - (nominalPos * feeCost);
 
         // 第10步：算盈亏比
         let rr = expProfit / maxLoss;
-        
-        // 保证金占比
         let marginRatio = (margin / balance) * 100;
 
         // 风险检查
         let risks = [];
-        let riskLevel = 'pass'; // pass, warn, fail
+        let riskLevel = 'pass'; 
 
         if (margin > balance) {
-            risks.push('❌ 保证金超出账户余额，无法开仓。请减小仓位或降低杠杆。');
+            risks.push('❌ 保证金超出账户余额，无法开仓。请减小单笔亏损占比或增加杠杆(不建议)。');
             riskLevel = 'fail';
         }
         if (margin > balance * 0.3) {
-            risks.push('⚠️ 保证金占比超30%，仓位偏重，注意集中度风险。');
+            risks.push('⚠️ 保证金占用超30%，仓位偏重，注意爆仓风险。');
             if (riskLevel === 'pass') riskLevel = 'warn';
         }
         if (rr < 1) {
-            risks.push('⚠️ 盈亏比不足1:1，收益不覆盖风险，建议调整止盈止损位。');
+            risks.push('⚠️ 盈亏比不足 1:1，冒着大风险赚小钱，建议调整入场位。');
             if (riskLevel === 'pass') riskLevel = 'warn';
         }
         if (slDist < feeCost) {
-            risks.push('❌ 止损距离小于手续费成本，不管涨跌都亏，请扩大止损。');
+            risks.push('❌ 止损距离小于手续费成本，刚开仓就等于亏损，请扩大止损空间。');
             riskLevel = 'fail';
         }
         if (leverage > 20) {
-            risks.push('⚠️ 高杠杆交易，极端行情下可能被强平，确认你能承受。');
+            risks.push('⚠️ 当前为高杠杆交易，极易出现插针强平，请确认承受能力。');
             if (riskLevel === 'pass') riskLevel = 'warn';
         }
         if ((direction === '做多' && tp < entry) || (direction === '做空' && tp > entry)) {
-            risks.push('❌ 止盈方向错误，请检查止盈价格。');
+            risks.push('❌ 止盈方向填写错误，请检查。');
             riskLevel = 'fail';
         }
-
         if (risks.length === 0) {
-            risks.push('✅ 所有风险检查通过');
+            risks.push('✅ 所有风险指标良好，可以考虑开仓。');
         }
 
-        // 渲染结果
+        // --- 渲染前端结果 ---
         document.getElementById('welcome-msg').classList.add('hidden');
         document.getElementById('result-content').classList.remove('hidden');
 
         document.getElementById('out-direction').className = dirColor;
         document.getElementById('out-direction').innerText = `${direction} ${dirIcon}`;
         document.getElementById('out-coin').innerText = coin;
+        
         document.getElementById('out-exchange').innerText = exchange;
-        document.getElementById('out-type').innerText = tradeType;
-        document.getElementById('out-fee-rate').innerText = formatNum(singleFee * 100, 4); // 调整精度以显示 0.0400
+        document.getElementById('out-type').innerText = tradeTypeStr;
+        document.getElementById('out-entry-fee').innerText = formatNum(entryFeeRate * 100, 4);
+        document.getElementById('out-exit-fee').innerText = formatNum(exitFeeRate * 100, 4);
 
         document.getElementById('out-balance').innerText = `${formatNum(balance)} USDT`;
-        document.getElementById('out-risk-amount').innerText = `${formatNum(riskPct, 2)}% （最多亏 ${formatNum(maxLoss)} USDT）`;
+        document.getElementById('out-risk-amount').innerText = `${formatNum(riskPct, 2)}% （触发止损将亏损 ${formatNum(maxLoss)} USDT）`;
         document.getElementById('out-entry').innerText = formatNum(entry);
         document.getElementById('out-sl').innerText = formatNum(sl);
         document.getElementById('out-tp').innerText = formatNum(tp);
         
         document.getElementById('out-sl-dist').innerText = `${formatNum(slDist * 100, 4)}%`;
-        document.getElementById('out-fee-cost').innerText = `${formatNum(feeCost * 100, 4)}%`;
+        
+        // 显示手续费明细
+        document.getElementById('out-fee-cost').innerText = `${formatNum(feeCost * 100, 4)}% (开 ${formatNum(entryFeeRate*100, 4)}% + 平 ${formatNum(exitFeeRate*100, 4)}%)`;
         document.getElementById('out-actual-sl').innerText = `${formatNum(actualSlCost * 100, 4)}%`;
         
         document.getElementById('out-leverage').innerText = `${leverage}x`;
@@ -421,7 +456,6 @@
         document.getElementById('out-rr').innerText = `${formatNum(rr, 1)} : 1`;
         document.getElementById('out-margin-ratio').innerText = `${formatNum(marginRatio, 2)}%`;
 
-        // 渲染风险提示
         let riskBox = document.getElementById('risk-box');
         riskBox.className = 'risks ' + riskLevel;
         document.getElementById('risk-list').innerHTML = risks.map(r => `<div class="risk-item">${r}</div>`).join('');
